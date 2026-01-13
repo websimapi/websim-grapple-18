@@ -63,7 +63,7 @@ export class Game {
         this.explosions = [];
 
         // Bindings
-        document.getElementById('restart-btn').addEventListener('click', () => this.reset());
+        document.getElementById('restart-btn').addEventListener('click', () => this.respawn());
 
         // Audio
         // removed setupAudio() and local sound variables
@@ -344,6 +344,42 @@ export class Game {
         // TrackManager handles this in update (we will add logic).
     }
 
+    respawn() {
+        if (this.room.roomState.roundStatus !== 'ACTIVE') return;
+        
+        const savedMax = this.myMaxScore;
+        
+        // Reset scene to ensure clean track state for new run
+        this.initScene(this.currentSeed);
+        
+        this.myMaxScore = savedMax;
+        
+        // Restore remote players immediately
+        this.onPresenceChange(this.room.presence);
+        
+        this.localState = 'PLAYING';
+        this.resetCarState();
+
+        // Spawn Logic: Behind peers to start fresh
+        const peers = Object.keys(this.room.peers).sort();
+        const myIndex = peers.indexOf(this.room.clientId);
+        
+        this.car.position.set(myIndex * 2.5 - 5, 2, -myIndex * 5); 
+        this.car.direction.set(0, 0, 1);
+        this.car.mesh.quaternion.identity();
+        
+        this.cameraManager.reset(this.car.position);
+
+        this.gameOverScreen.classList.add('hidden');
+        const startScreen = document.getElementById('start-screen');
+        if (startScreen) startScreen.classList.add('hidden');
+        if (this.uiLayer) this.uiLayer.style.display = 'block';
+
+        this.audioManager.playEngine();
+        this.recorder.start(this.trackManager);
+        this.room.updatePresence({ alive: true });
+    }
+
     gameOver() {
         this.isRunning = false;
         this.isCrashing = true;
@@ -463,7 +499,7 @@ export class Game {
             const data = await response.json();
 
             // Force reset to clear any current game state and setup scene
-            this.reset();
+            this.localState = 'REPLAYING_DEATH';
             this.isRunning = false; // Stop game loop immediately, we only want replay
             
             // Hide UI elements
