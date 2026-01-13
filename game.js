@@ -159,19 +159,27 @@ export class Game {
         // Start Loop
         if (!this.loopStarted) this.loop();
         
-        // Check for round status
-        if (!this.room.roomState.roundStatus) {
-            // First time init (Host)
+        // Check for round status and handle stale states
+        const state = this.room.roomState;
+        
+        // Apply initial UI state
+        this.onRoomStateChange(state);
+
+        if (!state.roundStatus || (state.roundStatus === 'ENDING' && Date.now() > (state.nextRoundTime || 0))) {
+            // First time init OR Stale room (everyone left during ending)
             this.startNewRound();
         }
     }
 
     startNewRound() {
+        if (this._startingRound) return;
+        this._startingRound = true;
         this.room.updateRoomState({
             roundStatus: 'ACTIVE',
             seed: Math.floor(Math.random() * 100000),
             startTime: Date.now()
         });
+        setTimeout(() => this._startingRound = false, 2000);
     }
 
     onRoomStateChange(state) {
@@ -179,10 +187,24 @@ export class Game {
             this.initScene(state.seed);
         }
         
+        const spawnBtn = document.getElementById('spawn-btn');
+
         if (state.roundStatus === 'ENDING') {
             this.showRoundEndUI(state.nextRoundTime);
+            if (spawnBtn) {
+                spawnBtn.disabled = true;
+                spawnBtn.innerText = "WAIT FOR NEXT ROUND";
+                spawnBtn.classList.add('disabled');
+            }
         } else if (state.roundStatus === 'ACTIVE') {
             this.hideRoundEndUI();
+            if (spawnBtn) {
+                spawnBtn.disabled = false;
+                if (spawnBtn.innerText === "WAIT FOR NEXT ROUND") {
+                    spawnBtn.innerText = "SPAWN IN";
+                }
+                spawnBtn.classList.remove('disabled');
+            }
         }
     }
 
@@ -609,6 +631,14 @@ export class Game {
         // 2. Environment
         if (this.spaceEnvironment) {
             this.spaceEnvironment.update(dt, this.camera.position);
+        }
+
+        // Watchdog for stuck rounds
+        if (this.room.roomState.roundStatus === 'ENDING' && this.room.roomState.nextRoundTime) {
+            if (Date.now() > this.room.roomState.nextRoundTime + 2000) {
+                 // Round end timer finished but no one started new round (Host left?)
+                 this.startNewRound();
+            }
         }
 
         // 3. State Machine
